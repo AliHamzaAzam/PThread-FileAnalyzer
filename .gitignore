@@ -1,0 +1,35 @@
+# General build artifacts
+cmake-build-*/
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# CLion and CMake generated files
+.idea/
+CMakeLists.txt.user
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Compiled binary files
+*.exe
+*.out
+*.app
+
+# clang-format backups
+*.orig
+
+# Ignore system-specific files
+.DS_Store
+Thumbs.db
