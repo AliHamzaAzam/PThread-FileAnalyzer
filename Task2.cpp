@@ -1,3 +1,6 @@
+//
+// Created by Ali Hamza Azam on 27/01/2025.
+//
 #include <iostream>
 #include <unordered_map>
 #include <fstream>
@@ -10,7 +13,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
-
+#include <algorithm>
 
 
 #define CORE_COUNT 11
@@ -20,8 +23,9 @@ using namespace std;
 mutex mtx;
 
 struct GraphData {
-    unordered_map<int, int> nodes; //nodes with degree
-    int num_edges = 0;
+    unordered_map<string, int> word_count; //words with frequency
+    int num_words = 0;
+    int num_vowel_words = 0;
 };
 
 struct ThreadArgs {
@@ -32,8 +36,8 @@ struct ThreadArgs {
     long end{};
     GraphData* text_data{};
 
-    ThreadArgs(int thread_id, int core_id, const char* data, long start, long end, GraphData* graph_data)
-            : thread_id(thread_id), core_id(core_id), data(data), start(start), end(end), text_data(graph_data) {}
+    ThreadArgs(int thread_id, int core_id, const char* data, long start, long end, GraphData* text_data)
+            : thread_id(thread_id), core_id(core_id), data(data), start(start), end(end), text_data(text_data) {}
     ThreadArgs() = default;
 };
 
@@ -65,7 +69,7 @@ long* calculate_chunk_offsets(const string& file_path, int num_threads) {
         fseek(file, nominal_offset, SEEK_SET);
 
         int c;
-        while ((c = fgetc(file)) != EOF && c != '\n') {}
+        while ((c = fgetc(file)) != EOF && c != '\n' && c != ' ') {}
 
         if (c == EOF) {
             for (int j = i; j < num_threads; j++) offsets[j] = total_size;
@@ -104,8 +108,9 @@ void* process_chunk(void* arg) {
         set_thread_affinity(pthread_self(), args->core_id);
     }
 
-    int local_edges = 0;
-    unordered_map<int, int> local_nodes;
+    int local_word_count = 0;
+    int local_vowel_word_count = 0;
+    unordered_map<string, int> local_words;
     const char* data = args->data + args->start;
     const char* end = args->data + args->end;
 
@@ -118,27 +123,38 @@ void* process_chunk(void* arg) {
         string line(data, line_end - data);
         data = line_end + 1;
 
-        if (line.empty() || line[0] == '#') {
+        if (line.empty()) {
             continue;
         }
 
-        int space = line.find('\t');
-        int node1 = stoi(line.substr(0, space));
-        int node2 = stoi(line.substr(space + 1));
+        // Split line into words
+        size_t start = 0;
+        size_t space = line.find(' ');
+        while (space != string::npos) {
+            string word = line.substr(start, space - start);
+            start = space + 1;
+            space = line.find(' ', start);
 
-        local_edges++;
-        local_nodes[node1]++;
-        local_nodes[node2]++;
+            if (word.empty() || !isalpha(word[0])) {
+                continue;
+            }
+
+            // Convert to lowercase
+            transform(word.begin(), word.end(), word.begin(), ::tolower);
+
+            if (word.find_first_of("aeiou") != string::npos) {
+                local_vowel_word_count++;
+            }
+            local_word_count++;
+            local_words[word]++;
+        }
     }
 
-    // Final update for remaining local data
     {
         lock_guard<mutex> lock(mtx);
-        args->text_data->num_edges += local_edges;
-
-        for (const auto& [node, degree] : local_nodes) {
-            args->text_data->nodes[node] += degree;
-        }
+        args->text_data->num_words += local_word_count;
+        args->text_data->num_vowel_words += local_vowel_word_count;
+        args->text_data->word_count.insert(local_words.begin(), local_words.end());
     }
 
     return nullptr;
@@ -175,13 +191,13 @@ int main(int argc, char* argv[]) {
     // Create threads
     pthread_t threads[num_threads];
     ThreadArgs thread_args[num_threads];
-    GraphData graph_data;
-    priority_queue<pair<int, int>, vector<pair<int, int>>, greater<>> top_nodes; // Min-heap for top 10
+    GraphData word_data;
+    priority_queue<pair<int, string>, vector<pair<int, string>>, greater<>> top_words; // Min-heap for top 10
     for (int i = 0; i < num_threads; i++) {
         if (core_affinity) {
-            thread_args[i] = ThreadArgs(i, i % CORE_COUNT, static_cast<const char*>(mapped_data), offsets[i], offsets[i + 1], &graph_data);
+            thread_args[i] = ThreadArgs(i, i % CORE_COUNT, static_cast<const char*>(mapped_data), offsets[i], offsets[i + 1], &word_data);
         } else {
-            thread_args[i] = ThreadArgs(i, -1, static_cast<const char*>(mapped_data), offsets[i], offsets[i + 1], &graph_data);
+            thread_args[i] = ThreadArgs(i, -1, static_cast<const char*>(mapped_data), offsets[i], offsets[i + 1], &word_data);
         }
     }
 
@@ -195,16 +211,17 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], nullptr);
     }
-    
+
     auto join_time = chrono::high_resolution_clock::now();
 
-    // Determine top-10 nodes populate min-heap
-    for (const auto& [node, degree] : graph_data.nodes) {
-        if (top_nodes.size() < 10) {
-            top_nodes.emplace(degree, node);
-        } else if (degree > top_nodes.top().first) {
-            top_nodes.pop();
-            top_nodes.emplace(degree, node);
+    // Determine top-10 words populate min-heap
+    for (auto& [word, count] : word_data.word_count) {
+        top_words.push({count, word});
+        if (top_words.size() > 10) {
+            top_words.pop();
+        } else if (count > top_words.top().first) {
+            top_words.pop();
+            top_words.emplace(count, word);
         }
     }
 
@@ -216,18 +233,18 @@ int main(int argc, char* argv[]) {
     cout << "Join time: "<< join_elapsed.count() << " seconds\n";
 
     // Output the results
-    cout << "Total unique nodes: " << graph_data.nodes.size() << endl;
-    cout << "Total edges: " << graph_data.num_edges << endl;
-    cout << "Top 10 nodes with highest degree:" << endl;
-    while (!top_nodes.empty()) {
-        auto [degree, node] = top_nodes.top();
-        top_nodes.pop();
-        cout << "Node: " << node << ", Degree: " << degree << endl;
+    cout << "Total unique words: " << word_data.word_count.size() << endl;
+    cout << "Total words starting with vowels: " << word_data.num_vowel_words << endl;
+    cout << "Total words: " << word_data.num_words << endl;
+    // Top 10 words
+    cout << "Top 10 words with highest frequency:" << endl;
+    while (!top_words.empty()) {
+        cout << top_words.top().second << ": " << top_words.top().first << " occurrences" << endl;
+        top_words.pop();
     }
 
 
     // Free memory
-    munmap(mapped_data, length);
     free(offsets);
     return 0;
 }

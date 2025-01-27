@@ -26,7 +26,7 @@ struct ThreadArgs {
     int start_line;
     int num_lines;
     string filepath;
-    GraphData* graph_data;
+    GraphData* text_data;
 };
 
 void* threadFunction(void* arg) {
@@ -64,9 +64,9 @@ void* threadFunction(void* arg) {
 
     // Thread-safe update of shared graph data
     {
-        lock_guard<mutex> lock(args->graph_data->mtx);
-        args->graph_data->num_edges += local_edges;
-        args->graph_data->nodes.insert(local_nodes.begin(), local_nodes.end());
+        lock_guard<mutex> lock(args->text_data->mtx);
+        args->text_data->num_edges += local_edges;
+        args->text_data->nodes.insert(local_nodes.begin(), local_nodes.end());
     }
 
     cout << "Thread " << args->core_id << " processed " << local_edges

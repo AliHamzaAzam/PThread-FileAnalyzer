@@ -5,4 +5,7 @@ set(CMAKE_CXX_STANDARD 23)
 
 add_executable(PThread_FileAnalyzer main.cpp
         Task1.cpp
-        Task1v.cpp)
+        Task1v.cpp
+        Task2.cpp
+        Task5.cpp
+        Task5.cpp)
