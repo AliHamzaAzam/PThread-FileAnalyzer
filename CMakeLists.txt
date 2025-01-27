@@ -3,4 +3,6 @@ project(PThread_FileAnalyzer)
 
 set(CMAKE_CXX_STANDARD 23)
 
-add_executable(PThread_FileAnalyzer main.cpp)
+add_executable(PThread_FileAnalyzer main.cpp
+        Task1.cpp
+        Task1v.cpp)
