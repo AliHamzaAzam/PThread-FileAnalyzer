@@ -1,102 +1,31 @@
-#include <iostream>
-#include <unordered_map>
-#include <fstream>
-#include <mutex>
-#include <pthread.h>
-#include <sched.h>
-#include <chrono>
-#include <utility>
-#include <queue>
-#include <sys/mman.h>
-#include <fcntl.h>
-#include <unistd.h>
+//
+// Created by Ali Hamza Azam on 27/01/2025.
+// ID : 22I-2126
+// Parallel and Distributed Computing - Assignment : 1
+//
+#include "utility.h"
 
-
-
-#define CORE_COUNT 11
-
-using namespace std;
-
-mutex mtx;
+mutex mtx;                             // Mutex for critical sections
 
 struct GraphData {
-    unordered_map<int, int> nodes; //nodes with degree
-    int num_edges = 0;
+    unordered_map<int, int> nodes;     // Nodes with degree
+    int num_edges = 0;                 // Total edges
 };
 
 struct ThreadArgs {
-    int thread_id{};
-    int core_id{};
+    int thread_id;
+    int core_id;
     const char* data;
-    long start{};
-    long end{};
-    GraphData* text_data{};
+    long start;
+    long end;
+    GraphData* text_data;
 
     ThreadArgs(int thread_id, int core_id, const char* data, long start, long end, GraphData* graph_data)
             : thread_id(thread_id), core_id(core_id), data(data), start(start), end(end), text_data(graph_data) {}
     ThreadArgs() = default;
 };
 
-void* mmap_file(const std::string& filepath, size_t& length) {
-    int fd = open(filepath.c_str(), O_RDONLY);
-    length = lseek(fd, 0, SEEK_END);
-    void* data = mmap(nullptr, length, PROT_READ, MAP_PRIVATE, fd, 0);
-    close(fd);
-    return data;
-}
-
-long* calculate_chunk_offsets(const string& file_path, int num_threads) {
-    FILE *file = fopen(file_path.c_str(), "rb");
-    if (!file) {
-        perror("Failed to open file");
-        return nullptr;
-    }
-
-    fseek(file, 0, SEEK_END);
-    long total_size = ftell(file);
-    rewind(file);
-
-    long* offsets = static_cast<long*>(malloc((num_threads + 1) * sizeof(long)));
-    offsets[0] = 0;
-    offsets[num_threads] = total_size;
-
-    for (int i = 1; i < num_threads; i++) {
-        long nominal_offset = i * (total_size / num_threads);
-        fseek(file, nominal_offset, SEEK_SET);
-
-        int c;
-        while ((c = fgetc(file)) != EOF && c != '\n') {}
-
-        if (c == EOF) {
-            for (int j = i; j < num_threads; j++) offsets[j] = total_size;
-            break;
-        }
-        offsets[i] = ftell(file);
-    }
-
-    fclose(file);
-    return offsets;
-}
-
-#ifdef __APPLE__
-#include <mach/mach.h>
-#include <mach/thread_policy.h>
-void set_thread_affinity(pthread_t pthread, int core_id) {
-    thread_affinity_policy_data_t policy = {core_id};
-    thread_port_t mach_thread = pthread_mach_thread_np(pthread);
-    thread_policy_set(mach_thread, THREAD_AFFINITY_POLICY, (thread_policy_t)&policy, 1);
-}
-#endif
-
-#ifdef __linux__
-void set_thread_affinity(pthread_t thread, int core_id) {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(core_id, &cpuset);
-    pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
-}
-#endif
-
+// Thread function to process a chunk of data
 void* process_chunk(void* arg) {
     auto* args = static_cast<ThreadArgs*>(arg);
 
@@ -131,7 +60,7 @@ void* process_chunk(void* arg) {
         local_nodes[node2]++;
     }
 
-    // Final update for remaining local data
+    // Update global data after processing the chunk
     {
         lock_guard<mutex> lock(mtx);
         args->text_data->num_edges += local_edges;
@@ -146,7 +75,7 @@ void* process_chunk(void* arg) {
 
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        cerr << "Usage: " << argv[0] << " <file_path> <num_threads> [core_affinity]\n";
+        cerr << "Usage: " << argv[0] << " <file_path> <num_threads> [core_affinity] [save_to_file]\n";
         return 1;
     }
 
@@ -157,20 +86,19 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     bool core_affinity = (argc > 3) ? (string(argv[3]) == "true") : false;
+    bool save_to_file = (argc > 4) ? (string(argv[4]) == "true") : false;
 
-    // Calculate chunk offsets
-    long* offsets = calculate_chunk_offsets(file_path, num_threads);
-    if (!offsets) {
-        return 1;
-    }
 
+    // Pre-processing - START
     // Memory map file
     size_t length;
     void* mapped_data = mmap_file(file_path, length);
     if (!mapped_data) {
-        free (offsets);
         return 1;
     }
+
+    // Calculate chunk offsets
+    auto offsets = calculate_chunk_offsets_mapped(static_cast<const char*>(mapped_data), length, num_threads);
 
     // Create threads
     pthread_t threads[num_threads];
@@ -184,21 +112,24 @@ int main(int argc, char* argv[]) {
             thread_args[i] = ThreadArgs(i, -1, static_cast<const char*>(mapped_data), offsets[i], offsets[i + 1], &graph_data);
         }
     }
+    // Pre-processing - END
 
-
+    // Main processing - START
+    // Start threads
     auto start_time = chrono::high_resolution_clock::now();
-
     for (int i = 0; i < num_threads; i++) {
         pthread_create(&threads[i], nullptr, process_chunk, &thread_args[i]);
     }
 
+    // Join threads
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], nullptr);
     }
-    
     auto join_time = chrono::high_resolution_clock::now();
+    // Main processing - END
 
-    // Determine top-10 nodes populate min-heap
+    // Post-processing - START
+    // Determine top-10 nodes by degree using a min-heap
     for (const auto& [node, degree] : graph_data.nodes) {
         if (top_nodes.size() < 10) {
             top_nodes.emplace(degree, node);
@@ -216,6 +147,7 @@ int main(int argc, char* argv[]) {
     cout << "Join time: "<< join_elapsed.count() << " seconds\n";
 
     // Output the results
+    vector<pair<int, int>> temp_top_nodes; // Min-heap for top 10
     cout << "Total unique nodes: " << graph_data.nodes.size() << endl;
     cout << "Total edges: " << graph_data.num_edges << endl;
     cout << "Top 10 nodes with highest degree:" << endl;
@@ -223,11 +155,27 @@ int main(int argc, char* argv[]) {
         auto [degree, node] = top_nodes.top();
         top_nodes.pop();
         cout << "Node: " << node << ", Degree: " << degree << endl;
+        temp_top_nodes.emplace_back(degree, node);
     }
 
+    if (!save_to_file) {
+        munmap(mapped_data, length);
+        return 0;
+    }
+    // Save results to ../output/task1_output.txt
+    ofstream output_file("../output/task1_output.txt");
+    output_file << "Total unique nodes: " << graph_data.nodes.size() << endl;
+    output_file << "Total edges: " << graph_data.num_edges << endl;
+    output_file << "Top 10 nodes with highest degree:" << endl;
+    while (!temp_top_nodes.empty()) {
+        auto [degree, node] = temp_top_nodes.back();
+        temp_top_nodes.pop_back();
+        output_file << "Node: " << node << ", Degree: " << degree << endl;
+    }
+    output_file.close();
+    // Post-processing - END
 
     // Free memory
     munmap(mapped_data, length);
-    free(offsets);
     return 0;
 }
