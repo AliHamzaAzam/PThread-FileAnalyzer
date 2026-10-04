@@ -1,0 +1,14 @@
+{
+  "source": "i222126_A_Report.pdf",
+  "date": "2025-02-01",
+  "platform": "macOS",
+  "machine": "Apple M3 Pro, 11 cores, 18 GB memory (page 2)",
+  "metric": "CPU-profile execution duration reported in prose, seconds",
+  "threads": 10,
+  "threadSource": "scripts/utilization.sh",
+  "rows": [
+    {"workload": "Graph / Orkut", "affinityOn": 6.145, "affinityOff": 5.625, "page": 9},
+    {"workload": "Text / MultiUN", "affinityOn": 24.965, "affinityOff": 24.799, "page": 14},
+    {"workload": "Logs / HDFS", "affinityOn": 1.694, "affinityOff": 2.022, "page": 19}
+  ]
+}

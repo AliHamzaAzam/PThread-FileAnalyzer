@@ -1,0 +1,15 @@
+Execution Time: 0.028015 seconds
+Join time: 0.0279958 seconds
+Total unique nodes: 10000
+Total edges: 1000000
+Top 10 nodes with highest degree:
+Node: 5077, Degree: 200
+Node: 5078, Degree: 200
+Node: 5079, Degree: 200
+Node: 5080, Degree: 200
+Node: 5081, Degree: 200
+Node: 5082, Degree: 200
+Node: 5083, Degree: 200
+Node: 5084, Degree: 200
+Node: 5085, Degree: 200
+Node: 5086, Degree: 200
