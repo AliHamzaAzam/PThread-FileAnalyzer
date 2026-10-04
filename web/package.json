@@ -1,0 +1,19 @@
+{
+  "name": "pthread-results",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "data": "python3 scripts/data.py",
+    "benchmark": "python3 scripts/benchmark.py"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vite": "^7.1.12"
+  }
+}
